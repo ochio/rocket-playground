@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+dotenvy = "0.15.7"
 reqwest = "0.12.5"
 rocket = "0.5.1"
 tokio = "1.39.2"
