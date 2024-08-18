@@ -1,6 +1,8 @@
+use chrono::Local;
 use dotenvy::dotenv;
 use reqwest::Client;
-use serde::Deserialize;
+use rocket::serde::json::Json;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 
@@ -44,8 +46,13 @@ struct GraphQLResponse {
     data: ResponseData,
 }
 
+#[derive(Serialize, Deserialize)]
+struct APIResult {
+    commited: bool,
+}
+
 #[get("/")]
-async fn index() -> String {
+async fn index() -> Json<APIResult> {
     let token = env::var("GITHUB_TOKEN").expect("FOO not set");
     let user = env::var("GITHUB_USER").expect("FOO not set");
     let url = "https://api.github.com/graphql";
@@ -89,13 +96,10 @@ async fn index() -> String {
         Err(err) => format!("Error reading response: {}", err),
     };
 
-    println!("{}", response_text);
-
     let graphql_response: GraphQLResponse =
         serde_json::from_str(&response_text).unwrap_or_else(|_| panic!("Failed to parse JSON"));
 
-    // Example: Check for contributions on a specific date
-    let specific_date = "2024-08-15"; // Replace with the date you want to check
+    let today = Local::now().format("%Y-%m-%d").to_string(); // Replace with the date you want to check
     let mut found = false;
 
     for week in graphql_response
@@ -106,7 +110,7 @@ async fn index() -> String {
         .weeks
     {
         for day in week.contributionDays {
-            if day.date == specific_date {
+            if day.date == today {
                 if day.contributionCount > 0 {
                     found = true;
                 }
@@ -115,11 +119,9 @@ async fn index() -> String {
         }
     }
 
-    if found {
-        format!("There were contributions on {}", specific_date)
-    } else {
-        format!("No contributions on {}", specific_date)
-    }
+    let result = APIResult { commited: found };
+
+    Json(result)
 }
 
 #[launch]
