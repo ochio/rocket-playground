@@ -51,10 +51,44 @@ struct APIResult {
     commited: bool,
 }
 
-#[get("/")]
-async fn index() -> Json<APIResult> {
-    let token = env::var("GITHUB_TOKEN").expect("FOO not set");
-    let user = env::var("GITHUB_USER").expect("FOO not set");
+// request
+#[derive(Deserialize, Debug)]
+struct LineEvent {
+    replyToken: String,
+    message: LineMessage,
+}
+
+#[derive(Deserialize, Debug)]
+struct LineMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+    text: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct LineWebhookRequest {
+    events: Vec<LineEvent>,
+}
+
+#[derive(Serialize, Debug)]
+struct LineReplyMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+    text: String,
+}
+
+#[derive(Serialize, Debug)]
+struct LineReplyBody {
+    replyToken: String,
+    messages: Vec<LineReplyMessage>,
+}
+
+#[post("/", format = "json", data = "<body>")]
+async fn index(body: Json<LineWebhookRequest>) {
+    let access_token =
+        env::var("LINE_CHANNEL_ACCESS_TOKEN").expect("LINE_CHANNEL_ACCESS_TOKEN not set");
+    let token = env::var("GITHUB_TOKEN").expect("Token not set");
+    let user = env::var("GITHUB_USER").expect("Token not set");
     let url = "https://api.github.com/graphql";
     let query = r#"
     query($userName:String!) {
@@ -75,7 +109,7 @@ async fn index() -> Json<APIResult> {
     let variables = json!({
         "userName": user
     });
-    let body = json!({
+    let query_body = json!({
         "query": query,
         "variables": variables
     })
@@ -86,7 +120,7 @@ async fn index() -> Json<APIResult> {
         .post(url)
         .header("Authorization", format!("Bearer {}", token))
         .header("User-Agent", "test")
-        .body(body)
+        .body(query_body)
         .send()
         .await
         .unwrap();
@@ -119,9 +153,32 @@ async fn index() -> Json<APIResult> {
         }
     }
 
-    let result = APIResult { commited: found };
+    for event in &body.events {
+        let reply_token = &event.replyToken;
 
-    Json(result)
+        let message = if found { "done" } else { "yet" }.to_string();
+
+        // 応答メッセージの作成
+        let reply_message = LineReplyMessage {
+            msg_type: "text".to_string(),
+            text: message,
+        };
+
+        let reply_body = LineReplyBody {
+            replyToken: reply_token.clone(),
+            messages: vec![reply_message],
+        };
+
+        // LINE APIに返信を送信
+        let _response = client
+            .post("https://api.line.me/v2/bot/message/reply")
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", access_token))
+            .json(&reply_body)
+            .send()
+            .await;
+        // エラーハンドリングを追加する場合は、ここでレスポンスを確認します
+    }
 }
 
 #[launch]
