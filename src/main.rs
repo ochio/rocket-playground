@@ -1,10 +1,11 @@
-use chrono::Local;
+use chrono::{Local, Timelike};
 use dotenvy::dotenv;
 use reqwest::Client;
 use rocket::serde::json::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
+use tokio::time::{sleep, sleep_until, Duration, Instant};
 
 #[macro_use]
 extern crate rocket;
@@ -181,8 +182,70 @@ async fn index(body: Json<LineWebhookRequest>) {
     }
 }
 
-#[launch]
-fn rocket() -> _ {
+async fn send_message() {
+    let token = env::var("LINE_CHANNEL_ACCESS_TOKEN").expect("LINE_CHANNEL_ACCESS_TOKEN not set");
+    let user_id = env::var("USER_ID").expect("USER_ID not set");
+    let client = Client::new();
+
+    // 送信するメッセージを設定
+    let reply_body = json!({
+        "to": user_id,  // 送信先のユーザーIDまたはグループID
+        "messages": [{
+            "type": "text",
+            "text": "毎日22時のメッセージです！"
+        }]
+    });
+
+    let _response = client
+        .post("https://api.line.me/v2/bot/message/push")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&reply_body)
+        .send()
+        .await;
+
+    // エラーハンドリングを追加する場合は、ここでレスポンスを確認します
+}
+
+// #[launch]
+#[tokio::main]
+async fn main() {
     dotenv().expect(".env file not found");
-    rocket::build().mount("/", routes![index])
+    let mut n = 0;
+    loop {
+        if n == 3 {
+            return;
+        }
+        n = n + 1;
+        let now = Local::now();
+        // 次の22時までの秒数を計算
+        let next_run = if now.hour() < 22 {
+            // 今日の22時までの残り時間
+            now.with_hour(22)
+                .unwrap()
+                .with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap()
+                .timestamp()
+                - now.timestamp()
+        } else {
+            // 明日の22時までの残り時間
+            now.with_hour(22)
+                .unwrap()
+                .with_minute(0)
+                .unwrap()
+                .with_second(0)
+                .unwrap()
+                .timestamp()
+                - now.timestamp()
+                + 86400 // +24時間(秒数)
+        };
+
+        // 次の22時まで待機
+        sleep(Duration::from_secs(next_run as u64)).await;
+
+        send_message().await;
+    }
+    // rocket::build().mount("/", routes![index])
 }
